@@ -68,9 +68,11 @@ def read_fasta(fasta_file):
             if line[0] == ">":
                 pass
             elif len(line) <80:
+                lines = lines + str(line.strip())
                 return(lines.upper())
             else:
                 lines = lines + str(line.strip())
+
 
 def find_start(start_regex, sequence, start, stop):
     """Find the start codon
@@ -85,11 +87,22 @@ def find_start(start_regex, sequence, start, stop):
 def find_stop(stop_regex, sequence, start):
     """Find the stop codon
     """
-    pos_codon = stop_regex.search(sequence, start)
-    if pos_codon == None:
+    pos_codon = stop_regex.finditer(sequence, start)
+    stop = None
+    for pos in pos_codon:
+        if pos == None:
+            pass
+        else:
+            stop = pos.start(0)
+            if (stop-start) % 3 == 0:
+                break
+            else: 
+                stop = None
+    if stop == None:
         return(None)
     else:
-        return(pos_codon.start(0))
+        return(stop)
+
 
 def has_shine_dalgarno(shine_regex, sequence, start, max_shine_dalgarno_distance):
     """Find a shine dalgarno motif before the start codon
@@ -101,10 +114,10 @@ def has_shine_dalgarno(shine_regex, sequence, start, max_shine_dalgarno_distance
     if shine_dal == None:
         return(False)
     else:
-        if start - shine_dal.end(0) >= 6:
-            return(True)
-        else:
+        if shine_dal.end(0)+6 >= start :
             return(False)
+        else:
+            return(True)
 
 def predict_genes(sequence, start_regex, stop_regex, shine_regex, 
                   min_gene_len, max_shine_dalgarno_distance, min_gap):
@@ -120,7 +133,7 @@ def predict_genes(sequence, start_regex, stop_regex, shine_regex,
                 len_gene = stop-now_pos
                 if len_gene >= min_gene_len:
                     if has_shine_dalgarno(shine_regex, sequence, now_pos, max_shine_dalgarno_distance):
-                        predict_genes.append([now_pos+1, stop+1])
+                        predict_genes.append([now_pos+1, stop+3])
                         now_pos = stop + min_gap
                     else:
                         now_pos +=1
@@ -137,8 +150,8 @@ def write_genes_pos(predicted_genes_file, probable_genes):
     """Write list of gene positions
     """
     try:
-        with open(predicted_genes_file, "wt") as predict_genes:
-            predict_genes_writer = csv.writer(predict_genes, delimiter=",")
+        with open(predicted_genes_file, "wt") as predicted_genes:
+            predict_genes_writer = csv.writer(predicted_genes, delimiter=",")
             predict_genes_writer.writerow(["Start", "Stop"])
             predict_genes_writer.writerows(probable_genes)
     except IOError:
@@ -174,13 +187,6 @@ def reverse_complement(kmer):
     return ''.join([complement[base] for base in kmer[::-1]])
 
 
-def list_reverse(sequence_rc, probable_genes_comp):
-    true_pos_genes = []
-    for prob in probable_genes_comp:
-        true_pos_genes.append([len(sequence_rc)-prob[0],
-                                len(sequence_rc)-prob[1]])
-    return(true_pos_genes)
-
 #==============================================================
 # Main program
 #==============================================================
@@ -199,7 +205,7 @@ def main():
     shine_regex = re.compile('A?G?GAGG|GGAG|GG.{1}GG')
     # Arguments
     args = get_arguments()
-    
+
     # Let us do magic in 5' to 3'
     sequence = read_fasta(args.genome_file)
     probable_genes = predict_genes(sequence, start_regex, stop_regex, shine_regex, 
@@ -209,9 +215,8 @@ def main():
     # Call these function in the order that you want
     # We reverse and complement
     sequence_rc = reverse_complement(sequence)
-    rv_prob_genes = predict_genes(sequence_rc, start_regex, stop_regex, shine_regex, 
+    probable_genes_comp = predict_genes(sequence_rc, start_regex, stop_regex, shine_regex, 
                   args.min_gene_len, args.max_shine_dalgarno_distance, args.min_gap)
-    probable_genes_comp = list_reverse( sequence_rc, rv_prob_genes)
 
     # Call to output functions
     write_genes_pos(args.predicted_genes_file, probable_genes)
